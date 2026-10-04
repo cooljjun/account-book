@@ -1,19 +1,21 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import {
+  Bot,
+  User,
+  Send,
+  Trash2,
   Sparkles,
+  RefreshCw,
+  Receipt,
   Calendar,
   CreditCard,
-  FileText,
-  Plus,
-  Trash2,
-  PieChart,
-  Search,
-  RefreshCw,
-  AlertCircle,
-  ArrowUpRight,
+  MessageSquare,
+  TrendingUp,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 interface ExpenseItem {
@@ -24,61 +26,57 @@ interface ExpenseItem {
   description: string;
 }
 
-const CATEGORIES = [
-  { name: "식비", icon: "🍱" },
-  { name: "교통비", icon: "🚗" },
-  { name: "쇼핑", icon: "🛍️" },
-  { name: "문화/여가", icon: "🎬" },
-  { name: "주거/통신", icon: "🏠" },
-  { name: "의료/건강", icon: "💊" },
-  { name: "기타", icon: "🏷️" },
-];
-
-function getCategoryFromDescription(desc: string): string {
-  if (!desc) return "기타";
-  const text = desc.toLowerCase();
-  if (/식사|점심|저녁|아침|밥|버거|치킨|피자|카페|커피|스타벅스|음료|밀키트|식당|고기|라멘|샌드위치|디저트/.test(text)) {
-    return "식비";
-  }
-  if (/택시|버스|지하철|주유|주차|기차|ktx|따릉이|교통|주차장|카카오t/.test(text)) {
-    return "교통비";
-  }
-  if (/쿠팡|네이버|쇼핑|옷|신발|의류|마트|다이소|올리브영|지그재그|무신사|선물/.test(text)) {
-    return "쇼핑";
-  }
-  if (/영화|공연|게임|전시|서점|책|넷플릭스|뮤지컬|스팀|노래방|티켓|유튜브/.test(text)) {
-    return "문화/여가";
-  }
-  if (/월세|관리비|전기세|수도세|통신비|폰요금|인터넷|요금|공과금/.test(text)) {
-    return "주거/통신";
-  }
-  if (/병원|약국|영양제|헬스|운동|필라테스|치과|의원|약/.test(text)) {
-    return "의료/건강";
-  }
-  return "기타";
+interface Message {
+  id: string;
+  sender: "user" | "ai";
+  text: string;
+  timestamp: string;
+  actionType?: "ADD_EXPENSE" | "DELETE_EXPENSE" | "QUERY" | "GENERAL";
+  expenseDetail?: {
+    date: string;
+    amount: number;
+    description: string;
+  };
 }
 
 export default function Home() {
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [submitting, setSubmitting] = useState<boolean>(false);
-  const [dbError, setDbError] = useState<string | null>(null);
+  const [loadingExpenses, setLoadingExpenses] = useState<boolean>(true);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputMessage, setInputMessage] = useState<string>("");
+  const [isAiThinking, setIsAiThinking] = useState<boolean>(false);
+  const [showSavedCards, setShowSavedCards] = useState<boolean>(true);
+  const [toast, setToast] = useState<string | null>(null);
 
-  // Form State
-  const [date, setDate] = useState<string>(new Date().toISOString().split("T")[0]);
-  const [amount, setAmount] = useState<string>("");
-  const [description, setDescription] = useState<string>("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // UI state
-  const [aiSuggestedCat, setAiSuggestedCat] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [filterCategory, setFilterCategory] = useState<string>("전체");
+  // Auto scroll chat to bottom
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
-  // Fetch expenses from Supabase
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isAiThinking]);
+
+  // Initial welcome message
+  useEffect(() => {
+    const initialMsg: Message = {
+      id: "welcome-1",
+      sender: "ai",
+      text: "안녕하세요! AI 가계부 챗봇입니다. 🤖\n\n자연스럽게 이야기하듯 지출 내역을 입력해 보세요. AI가 똑똑하게 분석해서 가계부에 등록해 드립니다!\n\n💡 예시 입력:\n• \"오늘 점심 12,000원 김치찌개 먹었어\"\n• \"어제 택시비 8,500원 결제함\"\n• \"이번 달 총 지출 알려줘\"",
+      timestamp: new Date().toLocaleTimeString("ko-KR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
+    setMessages([initialMsg]);
+  }, []);
+
+  // Fetch saved expenses from Supabase (Newest first)
   const fetchExpenses = useCallback(async () => {
-    setLoading(true);
-    setDbError(null);
+    setLoadingExpenses(true);
     try {
       const { data, error } = await supabase
         .from("expenses")
@@ -87,15 +85,13 @@ export default function Home() {
 
       if (error) {
         console.error("Supabase fetch error:", error);
-        setDbError(error.message);
       } else if (data) {
         setExpenses(data);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Fetch exception:", err);
-      setDbError(err?.message || "데이터를 불러오는 중 오류가 발생했습니다.");
     } finally {
-      setLoading(false);
+      setLoadingExpenses(false);
     }
   }, []);
 
@@ -103,456 +99,402 @@ export default function Home() {
     fetchExpenses();
   }, [fetchExpenses]);
 
-  // AI Category Recommendation
-  useEffect(() => {
-    if (!description.trim()) {
-      setAiSuggestedCat(null);
-      return;
-    }
-    const cat = getCategoryFromDescription(description);
-    setAiSuggestedCat(cat);
-  }, [description]);
+  // Total expenses sum calculation
+  const totalExpenseAmount = expenses.reduce(
+    (sum, item) => sum + (item.amount || 0),
+    0
+  );
 
   const showToast = (msg: string) => {
-    setToastMessage(msg);
+    setToast(msg);
     setTimeout(() => {
-      setToastMessage(null);
+      setToast(null);
     }, 3000);
   };
 
-  // Save to Supabase
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const numericAmount = parseInt(amount.replace(/[^0-9]/g, ""), 10);
-
-    if (!date) {
-      alert("날짜를 입력해주세요.");
-      return;
-    }
-    if (isNaN(numericAmount) || numericAmount <= 0) {
-      alert("올바른 금액을 입력해주세요.");
-      return;
-    }
-    if (!description.trim()) {
-      alert("내용을 입력해주세요.");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const { error } = await supabase.from("expenses").insert([
-        {
-          date,
-          amount: numericAmount,
-          description: description.trim(),
-        },
-      ]);
-
-      if (error) {
-        console.error("Supabase insert error:", error);
-        alert(`저장 실패: ${error.message}`);
-      } else {
-        // Clear inputs
-        setAmount("");
-        setDescription("");
-        setDate(new Date().toISOString().split("T")[0]);
-
-        showToast("지출 내역이 저장되었습니다.");
-        fetchExpenses();
-      }
-    } catch (err: any) {
-      console.error("Insert exception:", err);
-      alert(`저장 중 오류 발생: ${err?.message || err}`);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // Delete from Supabase
-  const handleDelete = async (id: number | string) => {
-    if (!confirm("이 내역을 삭제하시겠습니까?")) return;
-
+  // Direct card deletion
+  const handleDeleteExpense = async (id: number | string, desc: string) => {
     try {
       const { error } = await supabase.from("expenses").delete().eq("id", id);
-
       if (error) {
-        console.error("Supabase delete error:", error);
-        alert(`삭제 실패: ${error.message}`);
+        showToast("지출 삭제 실패: " + error.message);
       } else {
         setExpenses((prev) => prev.filter((item) => item.id !== id));
-        showToast("내역이 삭제되었습니다.");
+        showToast(`'${desc}' 지출 내역을 삭제했습니다.`);
+        
+        // Add notification message to chat
+        const deleteMsg: Message = {
+          id: Date.now().toString(),
+          sender: "ai",
+          text: `🗑️ 카드에서 '${desc}' 지출 내역을 삭제했습니다.`,
+          timestamp: new Date().toLocaleTimeString("ko-KR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          actionType: "DELETE_EXPENSE",
+        };
+        setMessages((prev) => [...prev, deleteMsg]);
       }
     } catch (err: any) {
-      console.error("Delete exception:", err);
-      alert(`삭제 중 오류 발생: ${err?.message || err}`);
+      showToast("삭제 중 오류 발생");
     }
   };
 
-  // Calculations
-  const totalExpense = useMemo(() => {
-    return expenses.reduce((sum, item) => sum + (item.amount || 0), 0);
-  }, [expenses]);
+  // Send Chat Message to Gemini API Route
+  const handleSendMessage = async (textToSend?: string) => {
+    const content = (textToSend || inputMessage).trim();
+    if (!content || isAiThinking) return;
 
-  const categoryTotals = useMemo(() => {
-    const map: Record<string, number> = {};
-    expenses.forEach((item) => {
-      const cat = getCategoryFromDescription(item.description);
-      map[cat] = (map[cat] || 0) + item.amount;
+    const userTime = new Date().toLocaleTimeString("ko-KR", {
+      hour: "2-digit",
+      minute: "2-digit",
     });
-    return Object.entries(map).sort((a, b) => b[1] - a[1]);
-  }, [expenses]);
 
-  const aiInsight = useMemo(() => {
-    if (expenses.length === 0) {
-      return "지출 내역을 입력하시면 소비 패턴 분석 리포트가 표시됩니다.";
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      sender: "user",
+      text: content,
+      timestamp: userTime,
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+    setInputMessage("");
+    setIsAiThinking(true);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: content,
+          expenses: expenses,
+        }),
+      });
+
+      const data = await res.json();
+      const aiTime = new Date().toLocaleTimeString("ko-KR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      if (!res.ok || data.error) {
+        const errorMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          sender: "ai",
+          text: data.reply || "오류가 발생했습니다. AI 답변을 가져올 수 없습니다.",
+          timestamp: aiTime,
+        };
+        setMessages((prev) => [...prev, errorMsg]);
+        return;
+      }
+
+      // Process Action based on Gemini analysis
+      let actionType: Message["actionType"] = data.action;
+      let expenseDetail: Message["expenseDetail"] = undefined;
+
+      if (data.action === "ADD_EXPENSE" && data.expenseData) {
+        const { date, amount, description } = data.expenseData;
+        if (amount && description) {
+          // Insert into Supabase
+          const { data: inserted, error: insertErr } = await supabase
+            .from("expenses")
+            .insert([{ date, amount: Number(amount), description }])
+            .select();
+
+          if (insertErr) {
+            console.error("Supabase insert error:", insertErr);
+            showToast("DB 저장 중 오류: " + insertErr.message);
+          } else if (inserted && inserted.length > 0) {
+            setExpenses((prev) => [inserted[0], ...prev]);
+            expenseDetail = { date, amount: Number(amount), description };
+            showToast(`✨ ${description} (${Number(amount).toLocaleString()}원) 가계부 추가 완료!`);
+          }
+        }
+      } else if (data.action === "DELETE_EXPENSE" && data.deleteTargetId) {
+        const targetId = data.deleteTargetId;
+        const { error: delErr } = await supabase
+          .from("expenses")
+          .delete()
+          .eq("id", targetId);
+
+        if (!delErr) {
+          setExpenses((prev) => prev.filter((item) => item.id !== targetId));
+          showToast(`🗑️ 지출 항목 삭제 완료`);
+        }
+      }
+
+      const aiMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: "ai",
+        text: data.reply || "네, 확인했습니다!",
+        timestamp: aiTime,
+        actionType,
+        expenseDetail,
+      };
+
+      setMessages((prev) => [...prev, aiMsg]);
+    } catch (err: any) {
+      console.error("Chat error:", err);
+      const fallbackMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: "ai",
+        text: "네트워크 통신 중 오류가 발생했습니다. 다시 시도해 주세요.",
+        timestamp: new Date().toLocaleTimeString("ko-KR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
+      setMessages((prev) => [...prev, fallbackMsg]);
+    } finally {
+      setIsAiThinking(false);
     }
+  };
 
-    if (categoryTotals.length > 0) {
-      const topCat = categoryTotals[0];
-      const percentage = Math.round((topCat[1] / (totalExpense || 1)) * 100);
-
-      if (topCat[0] === "식비" && percentage > 40) {
-        return `현재 가장 큰 지출 항목은 '${topCat[0]}'(${percentage}%)입니다. 식비를 점검해보세요.`;
-      }
-      if (topCat[0] === "교통비" && percentage > 30) {
-        return `지출 중 '${topCat[0]}'(${percentage}%) 비중이 높습니다. 대중교통 카드를 활용해보세요.`;
-      }
-      if (topCat[0] === "쇼핑" && percentage > 35) {
-        return `'${topCat[0]}' 지출이 전체의 ${percentage}%를 차지하고 있습니다.`;
-      }
-      return `현재 지출 1위는 '${topCat[0]}'(${topCat[1].toLocaleString()}원, ${percentage}%)입니다.`;
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
     }
-    return "꾸준한 소비 기록으로 가계부를 관리해보세요.";
-  }, [categoryTotals, totalExpense, expenses]);
-
-  const filteredExpenses = useMemo(() => {
-    return expenses.filter((item) => {
-      const cat = getCategoryFromDescription(item.description);
-      const matchSearch =
-        item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        cat.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.date.includes(searchQuery);
-      const matchCat = filterCategory === "전체" || cat === filterCategory;
-      return matchSearch && matchCat;
-    });
-  }, [expenses, searchQuery, filterCategory]);
+  };
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA] text-zinc-900 font-sans antialiased selection:bg-zinc-900 selection:text-white pb-24 sm:pb-20">
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed top-6 right-6 z-50 bg-zinc-900 text-white px-4 py-3 rounded-xl shadow-lg border border-zinc-800 flex items-center gap-2.5 text-sm font-medium animate-fade-in">
-          <span>{toastMessage}</span>
+    <div className="flex flex-col h-screen bg-[#F2F4F7] text-zinc-900 font-sans selection:bg-amber-300">
+      {/* TOAST NOTIFICATION */}
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-zinc-900 text-white text-xs font-medium px-4 py-2.5 rounded-full shadow-lg border border-zinc-800 flex items-center gap-2 animate-bounce">
+          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          <span>{toast}</span>
         </div>
       )}
 
-      <div className="max-w-3xl mx-auto w-full px-5 sm:px-8 pt-10 sm:pt-16">
-        {/* NOTION / APPLE STYLE HEADER */}
-        <header className="mb-12">
-          <div className="flex items-center gap-2 text-xs font-semibold tracking-wider text-zinc-400 uppercase mb-2">
-            <span>Supabase Sync</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+      {/* HEADER */}
+      <header className="bg-white/95 backdrop-blur-md border-b border-zinc-200/80 px-4 py-3 sm:px-6 shadow-xs flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-amber-400/90 flex items-center justify-center shadow-xs border border-amber-500/20 text-zinc-950 font-bold">
+            <Bot className="w-5 h-5 text-zinc-900" />
           </div>
-
-          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900">
-            나의 스마트 가계부
-          </h1>
-          <p className="text-zinc-500 text-sm mt-1.5 font-normal">
-            지출 내역을 심플하게 기록하고 스마트하게 관리하세요.
-          </p>
-        </header>
-
-        {/* METRICS SUMMARY - Minimal Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
-          <div className="bg-white p-5 rounded-2xl border border-zinc-200/60 shadow-xs">
-            <div className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">
-              총 지출
-            </div>
-            <div className="text-2xl font-extrabold text-zinc-900 font-mono tracking-tight">
-              ₩{totalExpense.toLocaleString()}
-            </div>
-            <div className="text-[11px] text-zinc-400 mt-1">합계 금액</div>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-zinc-200/60 shadow-xs">
-            <div className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">
-              등록 내역
-            </div>
-            <div className="text-2xl font-extrabold text-zinc-900 font-mono tracking-tight">
-              {expenses.length} <span className="text-sm font-normal text-zinc-400">건</span>
-            </div>
-            <div className="text-[11px] text-zinc-400 mt-1">전체 건수</div>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-zinc-200/60 shadow-xs">
-            <div className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-1">
-              건당 평균
-            </div>
-            <div className="text-2xl font-extrabold text-zinc-900 font-mono tracking-tight">
-              ₩{expenses.length > 0 ? Math.round(totalExpense / expenses.length).toLocaleString() : 0}
-            </div>
-            <div className="text-[11px] text-zinc-400 mt-1">평균 소비</div>
+          <div>
+            <h1 className="text-base sm:text-lg font-bold tracking-tight text-zinc-900 flex items-center gap-2">
+              AI 가계부 챗봇
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                Gemini 3.8
+              </span>
+            </h1>
+            <p className="text-xs text-zinc-500 font-normal">
+              대화하듯 간편하게 기록하는 스마트 가계부
+            </p>
           </div>
         </div>
 
-        {/* NOTION STYLE CALLOUT / AI REPORT */}
-        <div className="mb-10 p-4 bg-[#F4F4F5]/70 border border-zinc-200/50 rounded-2xl flex items-start gap-3 text-sm text-zinc-700">
-          <Sparkles className="w-4 h-4 text-zinc-600 shrink-0 mt-0.5" />
-          <div className="leading-relaxed">
-            <span className="font-semibold text-zinc-900 mr-2">AI 인사이트:</span>
-            <span>{aiInsight}</span>
-          </div>
-        </div>
-
-        {/* INPUT FORM - Subtle Background Contrast & Flat Button */}
-        <section className="bg-white border border-zinc-200/70 rounded-2xl p-6 sm:p-8 shadow-xs mb-12">
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-zinc-900 tracking-tight">지출 내역 입력</h2>
-            <p className="text-xs text-zinc-500 mt-0.5">날짜, 금액, 내용을 입력 후 저장하세요.</p>
-          </div>
-
-          <form onSubmit={handleSave} className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              {/* Date Input */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                  날짜
-                </label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full bg-[#F4F4F5] hover:bg-[#EAEAEA] focus:bg-white border border-transparent focus:border-zinc-300 text-zinc-900 text-sm font-medium rounded-xl px-4 py-3.5 transition-all outline-none"
-                  required
-                />
-              </div>
-
-              {/* Amount Input */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                  금액 (원)
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="0"
-                    value={amount}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/[^0-9]/g, "");
-                      setAmount(val ? Number(val).toLocaleString() : "");
-                    }}
-                    className="w-full bg-[#F4F4F5] hover:bg-[#EAEAEA] focus:bg-white border border-transparent focus:border-zinc-300 text-zinc-900 text-sm font-mono font-semibold rounded-xl px-4 py-3.5 transition-all outline-none placeholder:font-normal placeholder:text-zinc-400"
-                    required
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400">
-                    원
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Description Input */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                  내용
-                </label>
-                {aiSuggestedCat && (
-                  <span className="text-xs text-zinc-600 bg-zinc-100 px-2.5 py-0.5 rounded-md font-medium">
-                    추천: {aiSuggestedCat}
-                  </span>
-                )}
-              </div>
-              <input
-                type="text"
-                placeholder="예: 점심 식사, 스타벅스, 택시비"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full bg-[#F4F4F5] hover:bg-[#EAEAEA] focus:bg-white border border-transparent focus:border-zinc-300 text-zinc-900 text-sm font-medium rounded-xl px-4 py-3.5 transition-all outline-none placeholder:text-zinc-400"
-                required
-              />
-            </div>
-
-            {/* Flat Solid Button */}
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-medium py-3.5 px-6 rounded-xl transition-all flex items-center justify-center gap-2 text-sm cursor-pointer active:scale-[0.99]"
-              >
-                {submitting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-zinc-400" />
-                    <span>저장 중...</span>
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4" />
-                    <span>저장하기</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        </section>
-
-        {/* CATEGORY BREAKDOWN & EXPENSES LIST */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Category Ratios (Side column) */}
-          <div className="lg:col-span-1 bg-white border border-zinc-200/70 rounded-2xl p-6 shadow-xs h-fit">
-            <h3 className="text-sm font-semibold text-zinc-900 mb-4 flex items-center gap-2">
-              <PieChart className="w-4 h-4 text-zinc-500" />
-              카테고리 비율
-            </h3>
-
-            {categoryTotals.length === 0 ? (
-              <p className="text-xs text-zinc-400 py-4 text-center">내역이 없습니다.</p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowSavedCards(!showSavedCards)}
+            className="flex items-center gap-1.5 text-xs font-medium bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-3 py-1.5 rounded-xl transition-all border border-zinc-200/60"
+            title="저장된 지출 내역 토글"
+          >
+            <Receipt className="w-3.5 h-3.5 text-zinc-500" />
+            <span className="hidden sm:inline">저장 목록</span>
+            <span className="bg-zinc-200 text-zinc-800 text-[10px] px-1.5 py-0.5 rounded-md font-mono font-bold">
+              {expenses.length}
+            </span>
+            {showSavedCards ? (
+              <ChevronUp className="w-3.5 h-3.5 text-zinc-400" />
             ) : (
-              <div className="space-y-3">
-                {categoryTotals.map(([catName, sum]) => {
-                  const percent = Math.round((sum / (totalExpense || 1)) * 100);
-                  const catObj = CATEGORIES.find((c) => c.name === catName);
-                  return (
-                    <div key={catName} className="space-y-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-zinc-700 font-medium">
-                          {catObj?.icon || "🏷️"} {catName}
-                        </span>
-                        <span className="text-zinc-500 font-mono">
-                          {percent}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-zinc-100 rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className="bg-zinc-800 h-full rounded-full transition-all duration-300"
-                          style={{ width: `${percent}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
             )}
-          </div>
+          </button>
+        </div>
+      </header>
 
-          {/* Transactions Main Column */}
-          <div className="lg:col-span-2 bg-white border border-zinc-200/70 rounded-2xl p-6 shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-zinc-100">
-              <div>
-                <h3 className="text-base font-semibold text-zinc-900">지출 목록</h3>
-                <p className="text-xs text-zinc-400">총 {filteredExpenses.length}건</p>
-              </div>
-
+      {/* SAVED EXPENSES CARDS SECTION (대화 창 위) */}
+      {showSavedCards && (
+        <section className="bg-white/80 backdrop-blur-xs border-b border-zinc-200/80 px-4 py-3 shrink-0 transition-all duration-300">
+          <div className="max-w-4xl mx-auto">
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={fetchExpenses}
-                  className="p-2 bg-[#F4F4F5] hover:bg-zinc-200 text-zinc-600 rounded-xl transition-colors"
-                  title="새로고침"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-                </button>
-
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="검색..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-[#F4F4F5] focus:bg-white border border-transparent focus:border-zinc-300 text-xs text-zinc-900 rounded-xl pl-8 pr-3 py-2 outline-none w-28 sm:w-36 transition-all"
-                  />
-                </div>
-
-                <select
-                  value={filterCategory}
-                  onChange={(e) => setFilterCategory(e.target.value)}
-                  className="bg-[#F4F4F5] focus:bg-white border border-transparent focus:border-zinc-300 text-xs text-zinc-700 rounded-xl px-2.5 py-2 outline-none transition-all"
-                >
-                  <option value="전체">전체</option>
-                  {CATEGORIES.map((cat) => (
-                    <option key={cat.name} value={cat.name}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
+                <h2 className="text-xs font-bold text-zinc-700 tracking-wide uppercase flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-amber-500" />
+                  저장된 지출 내역
+                </h2>
+                <span className="text-[11px] text-zinc-400 font-normal">
+                  (최신순 정렬)
+                </span>
+              </div>
+              <div className="text-xs font-semibold text-zinc-800 font-mono flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-200/80 px-2.5 py-0.5 rounded-full">
+                <span className="text-[10px] text-amber-600 font-sans">총 지출:</span>
+                ₩{totalExpenseAmount.toLocaleString()}
               </div>
             </div>
 
-            {/* Error handling */}
-            {dbError && (
-              <div className="mb-4 p-3.5 bg-red-50 text-red-700 rounded-xl flex items-center gap-2.5 text-xs">
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
-                <span>Supabase 연결 오류: {dbError}</span>
+            {loadingExpenses ? (
+              <div className="flex items-center justify-center py-4 text-xs text-zinc-400">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                지출 내역 로딩 중...
               </div>
-            )}
-
-            {/* Loading / Empty / List */}
-            {loading ? (
-              <div className="text-center py-12 text-zinc-400 text-xs">
-                <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-zinc-400" />
-                불러오는 중...
-              </div>
-            ) : filteredExpenses.length === 0 ? (
-              <div className="text-center py-12 border border-dashed border-zinc-200 rounded-xl">
-                <p className="text-zinc-400 text-xs">지출 내역이 없습니다.</p>
+            ) : expenses.length === 0 ? (
+              <div className="text-center py-4 bg-zinc-50 rounded-xl border border-dashed border-zinc-200 text-xs text-zinc-400">
+                아직 저장된 지출 내역이 없습니다. 하단 챗봇에 지출 내역을 입력해 보세요! 📝
               </div>
             ) : (
-              <div className="divide-y divide-zinc-100">
-                {filteredExpenses.map((item) => {
-                  const inferredCat = getCategoryFromDescription(item.description);
-                  const catObj = CATEGORIES.find((c) => c.name === inferredCat);
-
-                  return (
-                    <div
-                      key={item.id}
-                      className="py-3.5 flex items-center justify-between first:pt-0 last:pb-0 group"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-9 h-9 rounded-xl bg-[#F4F4F5] flex items-center justify-center text-sm shrink-0">
-                          {catObj?.icon || "🏷️"}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-zinc-900 text-sm truncate">
-                              {item.description}
-                            </span>
-                            <span className="text-[11px] text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md font-normal">
-                              {inferredCat}
-                            </span>
-                          </div>
-                          <span className="text-xs text-zinc-400 font-mono block mt-0.5">
-                            {item.date}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className="font-mono font-bold text-base text-zinc-900 tracking-tight">
-                          -₩{item.amount.toLocaleString()}
+              <div className="flex gap-2.5 overflow-x-auto pb-1 pt-0.5 scrollbar-thin scrollbar-thumb-zinc-300">
+                {expenses.map((item) => (
+                  <div
+                    key={item.id}
+                    className="shrink-0 bg-white border border-zinc-200/90 hover:border-zinc-300 p-3 rounded-2xl shadow-xs w-48 sm:w-52 transition-all hover:shadow-sm flex flex-col justify-between group relative"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between text-[11px] text-zinc-400 font-medium mb-1">
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-zinc-400" />
+                          {item.date}
                         </span>
                         <button
-                          onClick={() => handleDelete(item.id)}
-                          className="text-zinc-300 hover:text-zinc-600 p-1.5 rounded-lg hover:bg-zinc-100 transition-colors"
-                          title="삭제"
+                          onClick={() => handleDeleteExpense(item.id, item.description)}
+                          className="opacity-0 group-hover:opacity-100 hover:text-red-500 text-zinc-400 transition-opacity p-0.5 rounded"
+                          title="지출 내역 삭제"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
+                      <div className="text-xs font-semibold text-zinc-800 line-clamp-1">
+                        {item.description}
+                      </div>
                     </div>
-                  );
-                })}
+
+                    <div className="mt-2 text-sm font-extrabold text-zinc-900 font-mono tracking-tight flex items-baseline justify-between border-t border-zinc-100 pt-1.5">
+                      <span className="text-[10px] font-sans font-normal text-zinc-400">금액</span>
+                      <span>₩{Number(item.amount).toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
-        </div>
+        </section>
+      )}
 
-        {/* MINIMAL FOOTER */}
-        <footer className="mt-16 text-center text-xs text-zinc-400 border-t border-zinc-200/60 pt-6">
-          <p>© 2026 나의 스마트 가계부</p>
-        </footer>
-      </div>
+      {/* MAIN CHAT CONVERSATION AREA */}
+      <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 space-y-4 max-w-4xl w-full mx-auto">
+        {messages.map((msg) => {
+          const isUser = msg.sender === "user";
+          return (
+            <div
+              key={msg.id}
+              className={`flex items-start gap-2.5 ${
+                isUser ? "flex-row-reverse" : "flex-row"
+              } animate-fade-in`}
+            >
+              {/* Avatar */}
+              {!isUser ? (
+                <div className="w-8 h-8 rounded-full bg-amber-400 text-zinc-900 font-bold flex items-center justify-center shrink-0 shadow-xs border border-amber-500/20 text-xs">
+                  <Bot className="w-4 h-4" />
+                </div>
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-zinc-800 text-white font-bold flex items-center justify-center shrink-0 shadow-xs text-xs">
+                  <User className="w-4 h-4" />
+                </div>
+              )}
+
+              {/* Message Bubble */}
+              <div
+                className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 shadow-xs text-sm leading-relaxed ${
+                  isUser
+                    ? "bg-amber-300 text-zinc-950 rounded-tr-none font-medium border border-amber-400/60"
+                    : "bg-white text-zinc-900 border border-zinc-200/90 rounded-tl-none"
+                }`}
+              >
+                <div className="whitespace-pre-wrap break-words">{msg.text}</div>
+
+                {/* Expense Details Badge (if ADD_EXPENSE action triggered) */}
+                {msg.expenseDetail && (
+                  <div className="mt-2.5 pt-2 border-t border-zinc-200/60 text-xs bg-amber-50/80 -mx-1 px-2.5 py-1.5 rounded-lg border border-amber-200/60 flex items-center justify-between">
+                    <span className="font-semibold text-zinc-700">
+                      📝 {msg.expenseDetail.description}
+                    </span>
+                    <span className="font-mono font-bold text-amber-900">
+                      ₩{msg.expenseDetail.amount.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+
+                {/* Timestamp */}
+                <div
+                  className={`text-[10px] mt-1.5 text-right ${
+                    isUser ? "text-amber-900/60 font-medium" : "text-zinc-400"
+                  }`}
+                >
+                  {msg.timestamp}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* AI THINKING INDICATOR */}
+        {isAiThinking && (
+          <div className="flex items-start gap-2.5 flex-row">
+            <div className="w-8 h-8 rounded-full bg-amber-400 text-zinc-900 font-bold flex items-center justify-center shrink-0 shadow-xs border border-amber-500/20 text-xs">
+              <Bot className="w-4 h-4" />
+            </div>
+            <div className="bg-white border border-zinc-200/90 rounded-2xl rounded-tl-none px-4 py-3 shadow-xs text-xs text-zinc-500 flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-spin" />
+              <span>AI가 메시지를 분석하고 있습니다...</span>
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </main>
+
+      {/* QUICK RECOMMENDATION CHIPS & CHAT INPUT BAR */}
+      <footer className="bg-white border-t border-zinc-200/80 p-3 sm:p-4 shrink-0 shadow-lg">
+        <div className="max-w-4xl mx-auto space-y-2.5">
+          {/* Quick Suggestion Chips */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+            <span className="text-[11px] text-zinc-400 font-medium shrink-0 flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-amber-500" /> 추천:
+            </span>
+            {[
+              "오늘 점심 12000원 김치찌개",
+              "어제 커피 4500원 결제함",
+              "총 지출 내역 알려줘",
+              "이번 달 얼마 썼어?",
+            ].map((chip, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleSendMessage(chip)}
+                disabled={isAiThinking}
+                className="shrink-0 bg-zinc-100 hover:bg-amber-100 hover:text-amber-900 text-zinc-700 px-2.5 py-1 rounded-full border border-zinc-200/80 text-[11px] transition-colors disabled:opacity-50"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+
+          {/* INPUT FORM */}
+          <div className="flex items-center gap-2">
+            <input
+              ref={inputRef}
+              type="text"
+              value={inputMessage}
+              onChange={(e) => setInputMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={isAiThinking}
+              placeholder="지출 내역을 자유롭게 입력해보세요 (예: 오늘 저녁 25000원 삼겹살)..."
+              className="flex-1 bg-zinc-50 border border-zinc-200 hover:border-zinc-300 focus:bg-white focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 rounded-2xl px-4 py-3 text-sm text-zinc-900 outline-none transition-all placeholder:text-zinc-400"
+            />
+            <button
+              onClick={() => handleSendMessage()}
+              disabled={!inputMessage.trim() || isAiThinking}
+              className="bg-amber-400 hover:bg-amber-500 text-zinc-950 font-bold px-4 py-3 rounded-2xl transition-all shadow-xs active:scale-95 disabled:opacity-40 disabled:hover:bg-amber-400 shrink-0 flex items-center justify-center gap-1.5"
+            >
+              <Send className="w-4 h-4" />
+              <span className="hidden sm:inline text-xs font-semibold">전송</span>
+            </button>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

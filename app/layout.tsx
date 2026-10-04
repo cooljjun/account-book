@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "나의 스마트 가계부",
-  description: "스마트한 AI 자동 분류와 소비 분석을 지원하는 가계부 서비스",
+  title: "AI 가계부 챗봇",
+  description: "Gemini 3.8 AI 기반 대화형 스마트 가계부 챗봇 서비스",
 };
 
 export default function RootLayout({
