@@ -256,7 +256,7 @@ export default function Home() {
           </div>
 
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900">
-            나의 AI 가계부
+            나의 스마트 가계부
           </h1>
           <p className="text-zinc-500 text-sm mt-1.5 font-normal">
             지출 내역을 심플하게 기록하고 스마트하게 관리하세요.
@@ -550,7 +550,7 @@ export default function Home() {
 
         {/* MINIMAL FOOTER */}
         <footer className="mt-16 text-center text-xs text-zinc-400 border-t border-zinc-200/60 pt-6">
-          <p>© 2026 나의 AI 가계부</p>
+          <p>© 2026 나의 스마트 가계부</p>
         </footer>
       </div>
     </div>

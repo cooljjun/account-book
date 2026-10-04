@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "나의 AI 가계부",
+  title: "나의 스마트 가계부",
   description: "스마트한 AI 자동 분류와 소비 분석을 지원하는 가계부 서비스",
 };
 
