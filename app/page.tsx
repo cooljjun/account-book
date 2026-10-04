@@ -278,7 +278,7 @@ export default function Home() {
               AI 가계부 챗봇
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                Gemini 3.8
+                Gemini 3.5
               </span>
             </h1>
             <p className="text-xs text-zinc-500 font-normal">

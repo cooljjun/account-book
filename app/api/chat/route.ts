@@ -22,7 +22,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Use current local date in YYYY-MM-DD
     const today = new Date();
     const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
@@ -69,15 +68,31 @@ JSON 응답 형식:
    - 가계부와 관련 없는 인사, 감사 등의 대화일 때 적용합니다.
 `;
 
-    const model = genAI.getGenerativeModel({
-      model: "gemini-3.8-flash",
-      generationConfig: {
-        responseMimeType: "application/json",
-      },
-    });
+    // Try models with fallback logic (gemini-3.5-flash-lite -> gemini-3.8-flash)
+    const modelsToTry = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
+    let responseText = "";
+    let lastError = null;
 
-    const result = await model.generateContent(systemPrompt);
-    const responseText = result.response.text().trim();
+    for (const modelName of modelsToTry) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          generationConfig: {
+            responseMimeType: "application/json",
+          },
+        });
+        const result = await model.generateContent(systemPrompt);
+        responseText = result.response.text().trim();
+        if (responseText) break;
+      } catch (err: any) {
+        console.warn(`Model ${modelName} failed, trying next fallback:`, err.message);
+        lastError = err;
+      }
+    }
+
+    if (!responseText) {
+      throw lastError || new Error("모든 AI 모델 트라이얼 실패");
+    }
 
     // Clean markdown code blocks if any
     const cleanedJson = responseText
