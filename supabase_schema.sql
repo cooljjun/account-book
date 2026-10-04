@@ -9,10 +9,10 @@ CREATE TABLE IF NOT EXISTS public.expenses (
 );
 
 -- RLS(Row Level Security) 활성화
---  ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
 
 -- 익명/모든 사용자에게 기본 CRUD 권한 부여 (개발용 정책)
---  CREATE POLICY "Enable read access for all users" ON public.expenses FOR SELECT USING (true);
---  CREATE POLICY "Enable insert access for all users" ON public.expenses FOR INSERT WITH CHECK (true);
---  CREATE POLICY "Enable update access for all users" ON public.expenses FOR UPDATE USING (true);
---  CREATE POLICY "Enable delete access for all users" ON public.expenses FOR DELETE USING (true);
+CREATE POLICY "Enable read access for all users" ON public.expenses FOR SELECT USING (true);
+CREATE POLICY "Enable insert access for all users" ON public.expenses FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update access for all users" ON public.expenses FOR UPDATE USING (true);
+CREATE POLICY "Enable delete access for all users" ON public.expenses FOR DELETE USING (true);
